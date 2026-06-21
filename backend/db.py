@@ -1,0 +1,124 @@
+import os
+import json
+import tempfile
+
+DB_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'db.json'))
+
+DEFAULT_STATE = {
+  "leads": [],
+  "settings": {
+    "systemPrompt": (
+      "You are an AI Appointment Setter for 'Apex Digital Solutions'. Your goal is to qualify the lead conversationally.\n"
+      "Do NOT present a boring questionnaire. Ask questions naturally one by one in a friendly, conversational tone.\n\n"
+      "Your goals:\n"
+      "1. Answer any FAQs the lead has using only the custom knowledge base. If you don't know the answer, say you will note it down for our human team.\n"
+      "2. Qualify the lead by discovering:\n"
+      "   - Need (what problem are they trying to solve?)\n"
+      "   - Budget (do they have at least $3,000 for this project?)\n"
+      "   - Timeline (are they looking to start within 1-3 months?)\n"
+      "3. Once you have qualified their Need, Budget, and Timeline:\n"
+      "   - Ask for their Name and Email address to confirm details.\n"
+      "   - Once they provide Name and Email, output the exact token: [SHOW_CALENDAR]\n"
+      "     This token is critical. It will automatically load the calendar scheduling UI so they can select a time slot.\n\n"
+      "Be concise, warm, and professional. Always keep your replies under 3 sentences unless answering a detailed FAQ."
+    ),
+    "faqs": [
+      {
+        "id": "faq-1",
+        "question": "What does Apex Digital Solutions do?",
+        "answer": "We are a full-service digital agency specializing in custom web applications, AI integrations, automation workflows, and cloud migrations."
+      },
+      {
+        "id": "faq-2",
+        "question": "What is your pricing model?",
+        "answer": "Our custom solutions typically start at $3,000 depending on the complexity, integrations, and timeline. We offer fixed-price projects and monthly retainer options."
+      },
+      {
+        "id": "faq-3",
+        "question": "How long does a typical project take?",
+        "answer": "A standard web app or automation project takes between 4 to 8 weeks. Larger enterprise projects can take 3 months or more."
+      }
+    ],
+    "googleCalendar": {
+      "clientId": "",
+      "clientSecret": "",
+      "refreshToken": "",
+      "isEnabled": False,
+      "isMockMode": True
+    }
+  }
+}
+
+def read_db():
+    try:
+        if not os.path.exists(DB_FILE):
+            write_db(DEFAULT_STATE)
+            return DEFAULT_STATE
+        with open(DB_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        print('Error reading database:', e)
+        return DEFAULT_STATE
+
+def write_db(data):
+    try:
+        # Atomic write using a temporary file in the same directory
+        db_dir = os.path.dirname(DB_FILE)
+        fd, temp_path = tempfile.mkstemp(dir=db_dir, suffix='.tmp')
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        # Replace original file with temporary file
+        if os.path.exists(DB_FILE):
+            os.replace(temp_path, DB_FILE)
+        else:
+            os.rename(temp_path, DB_FILE)
+        return True
+    except Exception as e:
+        print('Error writing database:', e)
+        return False
+
+def get_leads():
+    db = read_db()
+    return db.get("leads", [])
+
+def save_lead(lead):
+    db = read_db()
+    leads = db.setdefault("leads", [])
+    
+    # Try to find existing lead
+    index = -1
+    for i, l in enumerate(leads):
+        if l.get("id") == lead.get("id"):
+            index = i
+            break
+            
+    import datetime
+    now_str = datetime.datetime.utcnow().isoformat() + 'Z'
+    
+    if index != -1:
+        leads[index] = {**leads[index], **lead, "updatedAt": now_str}
+    else:
+        lead["createdAt"] = now_str
+        lead["updatedAt"] = now_str
+        leads.append(lead)
+        
+    write_db(db)
+    return lead
+
+def delete_lead(lead_id):
+    db = read_db()
+    leads = db.get("leads", [])
+    db["leads"] = [l for l in leads if l.get("id") != lead_id]
+    write_db(db)
+    return True
+
+def get_settings():
+    db = read_db()
+    return db.get("settings", DEFAULT_STATE["settings"])
+
+def save_settings(settings):
+    db = read_db()
+    db["settings"] = {**db.get("settings", {}), **settings}
+    write_db(db)
+    return db["settings"]

@@ -49,3 +49,9 @@ db.json.tmp
 .env.development.local
 .env.test.local
 .env.production.local
+
+# python env and build caches
+.venv/
+venv/
+__pycache__/
+*.pyc
