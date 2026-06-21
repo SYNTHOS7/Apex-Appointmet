@@ -105,6 +105,16 @@ def execute_query(query, params=None, fetch=False):
                 conn.commit()
                 return True
 
+def parse_json_field(val):
+    if not val:
+        return None
+    if isinstance(val, (dict, list)):
+        return val
+    try:
+        return json.loads(val)
+    except Exception:
+        return val
+
 DEFAULT_STATE = {
   "leads": [],
   "notifications": [],
@@ -304,10 +314,10 @@ def get_leads(client_id='default'):
             "name": r[2],
             "email": r[3],
             "status": r[4],
-            "bookedMeeting": r[5],
-            "transcript": r[6]
+            "bookedMeeting": parse_json_field(r[5]),
+            "transcript": parse_json_field(r[6]) or []
         }
-        extra_data = r[7] or {}
+        extra_data = parse_json_field(r[7]) or {}
         lead.update(extra_data)
         leads.append(lead)
     return leads
@@ -335,10 +345,10 @@ def get_lead(lead_id, client_id='default'):
         "name": r[2],
         "email": r[3],
         "status": r[4],
-        "bookedMeeting": r[5],
-        "transcript": r[6]
+        "bookedMeeting": parse_json_field(r[5]),
+        "transcript": parse_json_field(r[6]) or []
     }
-    extra_data = r[7] or {}
+    extra_data = parse_json_field(r[7]) or {}
     lead.update(extra_data)
     return lead
 
@@ -429,14 +439,14 @@ def get_settings(client_id='default'):
     row = rows[0]
     return {
         "systemPrompt": row[0],
-        "faqs": row[1],
-        "qualifications": row[2],
+        "faqs": parse_json_field(row[1]) or [],
+        "qualifications": parse_json_field(row[2]) or [],
         "resendApiKey": row[3],
         "twilioSid": row[4],
         "twilioToken": row[5],
         "twilioFromNumber": row[6],
         "ownerPhoneNumber": row[7],
-        "googleCalendar": row[8]
+        "googleCalendar": parse_json_field(row[8]) or {}
     }
 
 def save_settings(settings, client_id='default'):
@@ -496,7 +506,7 @@ def get_notifications(client_id='default'):
             "clientId": r[1],
             "timestamp": r[3].isoformat() if hasattr(r[3], "isoformat") else r[3],
         }
-        notif.update(r[4] or {})
+        notif.update(parse_json_field(r[4]) or {})
         notifs.append(notif)
     return notifs
 
