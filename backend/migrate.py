@@ -20,6 +20,24 @@ else:
     load_dotenv(dotenv_path=os.path.join(root_dir, '.env'))
 
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
+if DATABASE_URL:
+    try:
+        from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+        parsed = urlparse(DATABASE_URL)
+        hostname = parsed.hostname
+        if hostname:
+            addr_info = socket.getaddrinfo(hostname, None, socket.AF_INET)
+            if addr_info:
+                ip = addr_info[0][4][0]
+                query_params = dict(parse_qsl(parsed.query))
+                query_params['hostaddr'] = ip
+                new_query = urlencode(query_params)
+                new_parts = list(parsed)
+                new_parts[4] = new_query
+                DATABASE_URL = urlunparse(new_parts)
+    except Exception:
+        pass
+
 DB_JSON_PATH = os.path.join(root_dir, 'db.json')
 if not os.path.exists(DB_JSON_PATH):
     # fallback to backend/db.json if not in root

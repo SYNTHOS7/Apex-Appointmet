@@ -20,6 +20,27 @@ DB_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'db.json
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
 USE_POSTGRES = bool(DATABASE_URL)
 
+if USE_POSTGRES:
+    try:
+        from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+        import socket
+        parsed = urlparse(DATABASE_URL)
+        hostname = parsed.hostname
+        if hostname:
+            # Force IPv4 lookup for the host name in Python
+            addr_info = socket.getaddrinfo(hostname, None, socket.AF_INET)
+            if addr_info:
+                ip = addr_info[0][4][0]
+                print(f"[Database] Patched connection string: resolved {hostname} to IPv4 {ip}")
+                query_params = dict(parse_qsl(parsed.query))
+                query_params['hostaddr'] = ip
+                new_query = urlencode(query_params)
+                new_parts = list(parsed)
+                new_parts[4] = new_query
+                DATABASE_URL = urlunparse(new_parts)
+    except Exception as e:
+        print("[Database] Failed to apply hostaddr patch:", e)
+
 # Connection Pool Instance
 pool = None
 
