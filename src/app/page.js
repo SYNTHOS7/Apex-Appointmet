@@ -97,12 +97,13 @@ export default function Dashboard() {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const clientId = 'default';
 
   async function fetchData() {
     try {
       const [leadsRes, notifsRes] = await Promise.all([
-        fetch('/api/leads'),
-        fetch('/api/notifications')
+        fetch('/api/leads?clientId=' + encodeURIComponent(clientId)),
+        fetch('/api/notifications?clientId=' + encodeURIComponent(clientId))
       ]);
 
       if (!leadsRes.ok || !notifsRes.ok) throw new Error('Failed to fetch dashboard data');

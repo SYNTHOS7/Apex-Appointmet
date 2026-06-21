@@ -30,12 +30,13 @@ export default function Settings() {
   const [logsLoading, setLogsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState(null);
+  const clientId = 'default';
 
   // Fetch settings on mount
   useEffect(() => {
     async function fetchSettings() {
       try {
-        const res = await fetch('/api/settings');
+        const res = await fetch('/api/settings?clientId=' + encodeURIComponent(clientId));
         if (res.ok) {
           const data = await res.json();
           setSettings(data.settings);
@@ -59,7 +60,7 @@ export default function Settings() {
   const fetchNotifications = async () => {
     setLogsLoading(true);
     try {
-      const res = await fetch('/api/notifications');
+      const res = await fetch('/api/notifications?clientId=' + encodeURIComponent(clientId));
       if (res.ok) {
         const data = await res.json();
         setNotifications(data.notifications || []);
@@ -74,7 +75,7 @@ export default function Settings() {
   const handleClearNotifications = async () => {
     if (!confirm('Are you sure you want to clear all notification logs?')) return;
     try {
-      const res = await fetch('/api/notifications', { method: 'DELETE' });
+      const res = await fetch('/api/notifications?clientId=' + encodeURIComponent(clientId), { method: 'DELETE' });
       if (res.ok) {
         setNotifications([]);
       }
@@ -92,7 +93,7 @@ export default function Settings() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(updatedSettings),
+        body: JSON.stringify({ ...updatedSettings, clientId }),
       });
 
       if (res.ok) {
@@ -203,6 +204,7 @@ export default function Settings() {
 <script 
   src="${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/widget.js"
   id="ai-appointment-setter"
+  data-client="${clientId}"
 ></script>
 <!-- End AI Appointment Setter Widget -->`;
 

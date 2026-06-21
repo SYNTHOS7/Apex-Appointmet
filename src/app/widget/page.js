@@ -1,8 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 
-export default function WidgetPage() {
+function WidgetPageContent() {
+  const searchParams = useSearchParams();
+  const clientId = searchParams.get('clientId') || 'default';
   const [chatId, setChatId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -33,7 +36,7 @@ export default function WidgetPage() {
 
     async function loadChat() {
       try {
-        const res = await fetch('/api/leads');
+        const res = await fetch('/api/leads?clientId=' + encodeURIComponent(clientId));
         if (res.ok) {
           const data = await res.json();
           const existingLead = data.leads.find(l => l.id === chatId);
@@ -73,7 +76,7 @@ export default function WidgetPage() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId, message: 'hi' })
+        body: JSON.stringify({ chatId, message: 'hi', clientId })
       });
       if (res.ok) {
         const data = await res.json();
@@ -102,7 +105,7 @@ export default function WidgetPage() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId, message: userText })
+        body: JSON.stringify({ chatId, message: userText, clientId })
       });
 
       if (res.ok) {
@@ -127,7 +130,7 @@ export default function WidgetPage() {
   // Fetch calendar slots
   const fetchSlots = async () => {
     try {
-      const res = await fetch('/api/calendar');
+      const res = await fetch('/api/calendar?clientId=' + encodeURIComponent(clientId));
       if (res.ok) {
         const data = await res.json();
         setCalendarSlots(data.slots || []);
@@ -164,7 +167,7 @@ export default function WidgetPage() {
       const res = await fetch('/api/calendar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId, slot: selectedSlot })
+        body: JSON.stringify({ chatId, slot: selectedSlot, clientId })
       });
 
       if (res.ok) {
@@ -470,5 +473,13 @@ export default function WidgetPage() {
       </form>
 
     </div>
+  );
+}
+
+export default function WidgetPage() {
+  return (
+    <Suspense fallback={<div style={{ color: 'white', textAlign: 'center', paddingTop: '40px' }}>Loading...</div>}>
+      <WidgetPageContent />
+    </Suspense>
   );
 }

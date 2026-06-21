@@ -1,10 +1,21 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+    router.push('/login');
+    router.refresh();
+  };
 
   const navItems = [
     {
@@ -67,14 +78,35 @@ export default function Sidebar() {
       <div style={{
         padding: '24px',
         borderTop: '1px solid var(--border-glass)',
-        fontSize: '12px',
-        color: 'var(--text-muted)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '4px'
+        gap: '12px'
       }}>
-        <div>Version 1.0.0</div>
-        <div>System: Active</div>
+        <button
+          onClick={handleLogout}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '10px 14px',
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            borderRadius: '8px',
+            color: '#ef4444',
+            fontSize: '13px',
+            fontWeight: 600,
+            fontFamily: 'var(--font-display)',
+            cursor: 'pointer',
+            transition: 'var(--transition-fast)',
+            width: '100%',
+          }}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <span>Logout</span>
+        </button>
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+          Version 1.1.0 | System: Active
+        </div>
       </div>
     </aside>
   );

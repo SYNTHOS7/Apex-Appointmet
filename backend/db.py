@@ -101,14 +101,21 @@ def write_db(data):
         print('Error writing database:', e)
         return False
 
-def get_leads():
+def get_leads(client_id='default'):
     db = read_db()
-    return db.get("leads", [])
+    leads = db.get("leads", [])
+    return [l for l in leads if l.get("clientId", 'default') == client_id]
 
-def save_lead(lead):
+def save_lead(lead, client_id='default'):
     db = read_db()
     leads = db.setdefault("leads", [])
     
+    # Set clientId on lead if not present
+    if "clientId" not in lead:
+        lead["clientId"] = client_id
+    elif not lead["clientId"]:
+        lead["clientId"] = client_id
+        
     # Try to find existing lead
     index = -1
     for i, l in enumerate(leads):
@@ -129,28 +136,48 @@ def save_lead(lead):
     write_db(db)
     return lead
 
-def delete_lead(lead_id):
+def delete_lead(lead_id, client_id='default'):
     db = read_db()
     leads = db.get("leads", [])
-    db["leads"] = [l for l in leads if l.get("id") != lead_id]
+    # Only delete if it belongs to this client_id
+    db["leads"] = [l for l in leads if not (l.get("id") == lead_id and l.get("clientId", 'default') == client_id)]
     write_db(db)
     return True
 
-def get_settings():
+def get_settings(client_id='default'):
     db = read_db()
-    return db.get("settings", DEFAULT_STATE["settings"])
+    all_settings = db.get("settings", {})
+    # settings structure now stores settings per client_id: { "default": {...}, "client_a": {...} }
+    # To support backward compatibility, if settings is not formatted per client_id yet:
+    if "systemPrompt" in all_settings:
+        # Legacy format: migrate it to default client_id
+        legacy_settings = all_settings
+        db["settings"] = { "default": legacy_settings }
+        write_db(db)
+        all_settings = db["settings"]
+        
+    return all_settings.get(client_id, DEFAULT_STATE["settings"])
 
-def save_settings(settings):
+def save_settings(settings, client_id='default'):
     db = read_db()
-    db["settings"] = {**db.get("settings", {}), **settings}
+    all_settings = db.setdefault("settings", {})
+    if "systemPrompt" in all_settings:
+        # Legacy format migration
+        legacy_settings = all_settings
+        db["settings"] = { "default": legacy_settings }
+        all_settings = db["settings"]
+        
+    current_client_settings = all_settings.get(client_id, DEFAULT_STATE["settings"])
+    all_settings[client_id] = {**current_client_settings, **settings}
     write_db(db)
-    return db["settings"]
+    return all_settings[client_id]
 
-def get_notifications():
+def get_notifications(client_id='default'):
     db = read_db()
-    return db.get("notifications", [])
+    notifications = db.get("notifications", [])
+    return [n for n in notifications if n.get("clientId", 'default') == client_id]
 
-def save_notification(log):
+def save_notification(log, client_id='default'):
     db = read_db()
     notifications = db.setdefault("notifications", [])
     import datetime
@@ -158,6 +185,7 @@ def save_notification(log):
     now_str = datetime.datetime.utcnow().isoformat() + 'Z'
     log["timestamp"] = now_str
     log["id"] = f"notif-{int(time.time() * 1000)}"
+    log["clientId"] = client_id
     notifications.append(log)
     write_db(db)
     return log

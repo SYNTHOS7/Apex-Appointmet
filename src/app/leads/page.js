@@ -14,11 +14,12 @@ function LeadsCRMContent() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [loading, setLoading] = useState(true);
+  const clientId = 'default';
 
   // Fetch leads
   const fetchLeads = async () => {
     try {
-      const res = await fetch('/api/leads');
+      const res = await fetch('/api/leads?clientId=' + encodeURIComponent(clientId));
       if (res.ok) {
         const data = await res.json();
         setLeads(data.leads || []);
@@ -50,7 +51,7 @@ function LeadsCRMContent() {
   const handleDeleteLead = async (id) => {
     if (!confirm('Are you sure you want to delete this lead? This will erase all transcripts and details.')) return;
     try {
-      const res = await fetch(`/api/leads?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/leads?id=${id}&clientId=` + encodeURIComponent(clientId), { method: 'DELETE' });
       if (res.ok) {
         setLeads(prev => prev.filter(l => l.id !== id));
         if (selectedLead?.id === id) {

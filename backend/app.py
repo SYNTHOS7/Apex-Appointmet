@@ -12,13 +12,56 @@ if os.path.exists(env_path):
 else:
     load_dotenv(dotenv_path=os.path.join(root_dir, '.env'))
 
-from db import read_db, save_lead, get_leads, delete_lead, get_settings, save_settings, get_notifications, save_notification
+from db import read_db, write_db, save_lead, get_leads, delete_lead, get_settings, save_settings, get_notifications, save_notification
+
 from gemini import get_ai_response
 from calendar_service import get_available_slots, book_appointment
 
 app = Flask(__name__)
-# Enable CORS for Next.js dev server on port 3000
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+# ─────────────────────────────────────────────────────────────
+# CORS Configuration: route-specific, NOT blanket wildcard
+# ─────────────────────────────────────────────────────────────
+# The Vercel domain that hosts the Next.js dashboard
+DASHBOARD_ORIGIN = os.environ.get("DASHBOARD_ORIGIN", "http://localhost:3000")
+
+# Public widget endpoints: open CORS (any origin can embed the widget)
+CORS(app, resources={
+    r"/api/chat":     {"origins": "*"},
+    r"/api/calendar": {"origins": "*"},
+}, supports_credentials=False)
+
+# Admin/dashboard endpoints: only callable from our own Next.js domain
+# We apply CORS manually via after_request for these routes
+ADMIN_ROUTES = ["/api/leads", "/api/settings", "/api/notifications"]
+
+@app.after_request
+def apply_admin_cors(response):
+    """Apply strict CORS headers for admin routes — only our dashboard origin."""
+    path = request.path
+    for route_prefix in ADMIN_ROUTES:
+        if path.startswith(route_prefix):
+            response.headers["Access-Control-Allow-Origin"] = DASHBOARD_ORIGIN
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+            break
+    return response
+
+
+# ─────────────────────────────────────────────────────────────
+# Helper: extract clientId from request (query param or JSON body)
+# ─────────────────────────────────────────────────────────────
+def get_client_id():
+    """Pull clientId from query params (GET/DELETE) or JSON body (POST)."""
+    cid = request.args.get("clientId")
+    if not cid and request.is_json:
+        cid = (request.json or {}).get("clientId")
+    return cid or "default"
+
+
+# ─────────────────────────────────────────────────────────────
+# Public Widget Endpoints (CORS: *)
+# ─────────────────────────────────────────────────────────────
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
@@ -26,14 +69,16 @@ def chat():
         data = request.json or {}
         chat_id = data.get("chatId")
         message = data.get("message")
+        client_id = get_client_id()
         
         if not chat_id or not message:
             return jsonify({"error": "chatId and message are required"}), 400
             
         db = read_db()
+        leads = db.get("leads", [])
         lead = None
-        for l in db.get("leads", []):
-            if l.get("id") == chat_id:
+        for l in leads:
+            if l.get("id") == chat_id and l.get("clientId") == client_id:
                 lead = l
                 break
                 
@@ -41,6 +86,7 @@ def chat():
         if not lead:
             lead = {
                 "id": chat_id,
+                "clientId": client_id,
                 "name": None,
                 "email": None,
                 "status": "in-progress",
@@ -48,7 +94,7 @@ def chat():
                 "bookedMeeting": None
             }
             # Add dynamic placeholders for active qualifications
-            settings_data = get_settings()
+            settings_data = get_settings(client_id)
             for q in settings_data.get("qualifications", []):
                 lead[q.get("id")] = None
             
@@ -65,7 +111,7 @@ def chat():
         
         # Update qualifications dynamically
         ext = ai_result.get("extractedInfo", {}) or {}
-        settings_data = get_settings()
+        settings_data = get_settings(client_id)
         for q in settings_data.get("qualifications", []):
             qid = q.get("id")
             if ext.get(qid) is not None:
@@ -84,13 +130,20 @@ def chat():
             "timestamp": datetime.datetime.utcnow().isoformat() + 'Z'
         })
         
-        # Save lead to file DB
+        # Save lead to file DB (with clientId tagging)
         save_lead(lead)
         
+        # Return ONLY safe fields to the public widget
         return jsonify({
             "reply": ai_result.get("reply", ""),
             "showCalendar": ai_result.get("showCalendar", False),
-            "lead": lead
+            "lead": {
+                "id": lead.get("id"),
+                "name": lead.get("name"),
+                "email": lead.get("email"),
+                "status": lead.get("status"),
+                "bookedMeeting": lead.get("bookedMeeting")
+            }
         })
         
     except Exception as e:
@@ -100,7 +153,9 @@ def chat():
 @app.route('/api/calendar', methods=['GET'])
 def get_slots():
     try:
+        # clientId available but not needed for slot generation yet
         slots = get_available_slots()
+        # Return ONLY ISO timestamp strings — no internal metadata
         return jsonify({"slots": slots})
     except Exception as e:
         print('[Calendar API GET] Error:', e)
@@ -112,20 +167,35 @@ def book_slot():
         data = request.json or {}
         chat_id = data.get("chatId")
         slot = data.get("slot")
+        client_id = get_client_id()
         
         if not chat_id or not slot:
             return jsonify({"error": "chatId and slot are required"}), 400
             
         updated_lead = book_appointment(chat_id, slot)
-        return jsonify({"success": True, "lead": updated_lead})
+        # Return ONLY safe fields to the public widget
+        return jsonify({
+            "success": True,
+            "lead": {
+                "id": updated_lead.get("id"),
+                "name": updated_lead.get("name"),
+                "bookedMeeting": updated_lead.get("bookedMeeting")
+            }
+        })
     except Exception as e:
         print('[Calendar API POST] Error:', e)
         return jsonify({"error": str(e) or "Failed to book slot"}), 500
 
+
+# ─────────────────────────────────────────────────────────────
+# Admin Dashboard Endpoints (CORS: DASHBOARD_ORIGIN only)
+# ─────────────────────────────────────────────────────────────
+
 @app.route('/api/leads', methods=['GET'])
 def get_all_leads():
     try:
-        leads_list = get_leads()
+        client_id = get_client_id()
+        leads_list = get_leads(client_id)
         # Sort by updated time desc
         try:
             leads_list.sort(key=lambda x: x.get("updatedAt", ""), reverse=True)
@@ -140,10 +210,11 @@ def get_all_leads():
 def remove_lead():
     try:
         lead_id = request.args.get("id")
+        client_id = get_client_id()
         if not lead_id:
             return jsonify({"error": "Lead ID is required"}), 400
             
-        delete_lead(lead_id)
+        delete_lead(lead_id, client_id)
         return jsonify({"success": True})
     except Exception as e:
         print('[Leads API DELETE] Error:', e)
@@ -152,7 +223,8 @@ def remove_lead():
 @app.route('/api/settings', methods=['GET'])
 def fetch_settings():
     try:
-        settings = get_settings()
+        client_id = get_client_id()
+        settings = get_settings(client_id)
         gcal = settings.get("googleCalendar", {})
         
         sanitized = {
@@ -181,7 +253,8 @@ def fetch_settings():
 def save_config_settings():
     try:
         new_settings = request.json or {}
-        current_settings = get_settings()
+        client_id = new_settings.pop("clientId", "default")
+        current_settings = get_settings(client_id)
         
         # Preserve keys if masked
         if new_settings.get("resendApiKey") == "••••••••••••":
@@ -202,7 +275,7 @@ def save_config_settings():
             
         new_settings["googleCalendar"] = updated_cal
         
-        saved = save_settings(new_settings)
+        saved = save_settings(new_settings, client_id)
         return jsonify({"success": True, "settings": saved})
     except Exception as e:
         print('[Settings API POST] Error:', e)
@@ -211,7 +284,8 @@ def save_config_settings():
 @app.route('/api/notifications', methods=['GET'])
 def get_sent_notifications():
     try:
-        notifs = get_notifications()
+        client_id = get_client_id()
+        notifs = get_notifications(client_id)
         try:
             notifs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         except Exception:
@@ -224,8 +298,10 @@ def get_sent_notifications():
 @app.route('/api/notifications', methods=['DELETE'])
 def clear_all_notifications():
     try:
+        client_id = get_client_id()
         db = read_db()
-        db["notifications"] = []
+        all_notifs = db.get("notifications", [])
+        db["notifications"] = [n for n in all_notifs if n.get("clientId") != client_id]
         write_db(db)
         return jsonify({"success": True})
     except Exception as e:
