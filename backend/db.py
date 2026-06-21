@@ -6,17 +6,15 @@ DB_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'db.json
 
 DEFAULT_STATE = {
   "leads": [],
+  "notifications": [],
   "settings": {
     "systemPrompt": (
       "You are an AI Appointment Setter for 'Apex Digital Solutions'. Your goal is to qualify the lead conversationally.\n"
       "Do NOT present a boring questionnaire. Ask questions naturally one by one in a friendly, conversational tone.\n\n"
       "Your goals:\n"
       "1. Answer any FAQs the lead has using only the custom knowledge base. If you don't know the answer, say you will note it down for our human team.\n"
-      "2. Qualify the lead by discovering:\n"
-      "   - Need (what problem are they trying to solve?)\n"
-      "   - Budget (do they have at least $3,000 for this project?)\n"
-      "   - Timeline (are they looking to start within 1-3 months?)\n"
-      "3. Once you have qualified their Need, Budget, and Timeline:\n"
+      "2. Qualify the lead by discovering their requirements based on the custom qualification list.\n"
+      "3. Once you have qualified their details:\n"
       "   - Ask for their Name and Email address to confirm details.\n"
       "   - Once they provide Name and Email, output the exact token: [SHOW_CALENDAR]\n"
       "     This token is critical. It will automatically load the calendar scheduling UI so they can select a time slot.\n\n"
@@ -39,6 +37,31 @@ DEFAULT_STATE = {
         "answer": "A standard web app or automation project takes between 4 to 8 weeks. Larger enterprise projects can take 3 months or more."
       }
     ],
+    "qualifications": [
+      {
+        "id": "need",
+        "label": "Project Need",
+        "description": "What problem are they trying to solve?",
+        "enabled": True
+      },
+      {
+        "id": "budget",
+        "label": "Estimated Budget",
+        "description": "Do they have at least $3,000 for this project?",
+        "enabled": True
+      },
+      {
+        "id": "timeline",
+        "label": "Target Timeline",
+        "description": "Are they looking to start within 1-3 months?",
+        "enabled": True
+      }
+    ],
+    "resendApiKey": "",
+    "twilioSid": "",
+    "twilioToken": "",
+    "twilioFromNumber": "",
+    "ownerPhoneNumber": "",
     "googleCalendar": {
       "clientId": "",
       "clientSecret": "",
@@ -122,3 +145,19 @@ def save_settings(settings):
     db["settings"] = {**db.get("settings", {}), **settings}
     write_db(db)
     return db["settings"]
+
+def get_notifications():
+    db = read_db()
+    return db.get("notifications", [])
+
+def save_notification(log):
+    db = read_db()
+    notifications = db.setdefault("notifications", [])
+    import datetime
+    import time
+    now_str = datetime.datetime.utcnow().isoformat() + 'Z'
+    log["timestamp"] = now_str
+    log["id"] = f"notif-{int(time.time() * 1000)}"
+    notifications.append(log)
+    write_db(db)
+    return log

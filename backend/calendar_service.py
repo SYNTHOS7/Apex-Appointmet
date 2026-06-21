@@ -1,6 +1,6 @@
 import datetime
 import requests
-from db import get_settings, read_db, save_lead
+from db import get_settings, read_db, save_lead, save_notification
 
 def get_google_access_token(client_id, client_secret, refresh_token):
     try:
@@ -231,4 +231,136 @@ def book_appointment(lead_id, date_time_iso):
         except Exception as e:
             print('[Calendar Service] Failed to create Google Calendar event, but local booking is saved:', e)
             
+    # Trigger notifications (email & SMS)
+    try:
+        meeting_time_formatted = meeting_date.strftime("%A, %B %d at %I:%M %p")
+        send_email_confirmation(lead, meeting_time_formatted, settings)
+        send_sms_alert(lead, meeting_time_formatted, settings)
+    except Exception as e:
+        print("[Notifications] Error triggering alerts in book_appointment:", e)
+            
     return lead
+
+def send_email_confirmation(lead, meeting_date_str, settings):
+    resend_key = settings.get("resendApiKey")
+    lead_email = lead.get("email")
+    lead_name = lead.get("name", "there")
+    
+    subject = "Discovery Call Confirmed - Apex Digital Solutions"
+    html_content = f"""
+    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #0c0d12; color: #f8fafc; border-radius: 12px; border: 1px solid #fbbf24;">
+      <h2 style="color: #f59e0b;">Call Confirmed!</h2>
+      <p>Hi {lead_name},</p>
+      <p>Your discovery call with Apex Digital Solutions has been successfully scheduled.</p>
+      <div style="background-color: rgba(255, 255, 255, 0.05); padding: 16px; border-radius: 8px; margin: 20px 0;">
+        <strong>📅 Date & Time:</strong> {meeting_date_str}<br/>
+        <strong>⏳ Duration:</strong> 30 Minutes<br/>
+        <strong>📍 Location:</strong> Video Call link will be sent shortly
+      </div>
+      <p>Looking forward to speaking with you!</p>
+      <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 20px 0;"/>
+      <p style="font-size: 11px; color: #64748b;">Scheduled automatically by Apex Assistant.</p>
+    </div>
+    """
+    
+    if resend_key and resend_key != "••••••••••••":
+        try:
+            response = requests.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {resend_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "from": "Apex Support <onboarding@resend.dev>",
+                    "to": lead_email,
+                    "subject": subject,
+                    "html": html_content
+                }
+            )
+            if response.status_code in [200, 201]:
+                save_notification({
+                    "type": "email",
+                    "recipient": lead_email,
+                    "subject": subject,
+                    "status": "delivered",
+                    "details": "Sent successfully via Resend API."
+                })
+                print("[Notifications] Real email sent to:", lead_email)
+                return
+            else:
+                print("[Notifications] Resend API error:", response.status_code, response.text)
+                save_notification({
+                    "type": "email",
+                    "recipient": lead_email,
+                    "subject": subject,
+                    "status": "failed",
+                    "details": f"Resend API error: {response.status_code} - {response.text}"
+                })
+                return
+        except Exception as e:
+            print("[Notifications] Failed to send email via Resend:", e)
+            
+    # Simulated log fallback
+    save_notification({
+        "type": "email",
+        "recipient": lead_email,
+        "subject": subject,
+        "status": "simulated",
+        "details": f"Simulated call confirmation email sent to {lead_email}."
+    })
+    print("[Notifications] Simulated email logged to:", lead_email)
+
+def send_sms_alert(lead, meeting_date_str, settings):
+    sid = settings.get("twilioSid")
+    token = settings.get("twilioToken")
+    from_num = settings.get("twilioFromNumber")
+    to_num = settings.get("ownerPhoneNumber")
+    lead_name = lead.get("name", "Anonymous")
+    
+    body_text = f"Apex Alert: New Lead Qualified! {lead_name} ({lead.get('email')}) has booked a discovery call for {meeting_date_str}."
+    
+    if sid and token and from_num and to_num and sid != "••••••••••••" and token != "••••••••••••":
+        try:
+            url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+            response = requests.post(
+                url,
+                auth=(sid, token),
+                data={
+                    "From": from_num,
+                    "To": to_num,
+                    "Body": body_text
+                }
+            )
+            if response.status_code in [200, 201]:
+                save_notification({
+                    "type": "sms",
+                    "recipient": to_num,
+                    "body": body_text,
+                    "status": "delivered",
+                    "details": "Sent successfully via Twilio API."
+                })
+                print("[Notifications] Real SMS alert sent to:", to_num)
+                return
+            else:
+                print("[Notifications] Twilio API error:", response.status_code, response.text)
+                save_notification({
+                    "type": "sms",
+                    "recipient": to_num,
+                    "body": body_text,
+                    "status": "failed",
+                    "details": f"Twilio API error: {response.status_code} - {response.text}"
+                })
+                return
+        except Exception as e:
+            print("[Notifications] Failed to send SMS via Twilio:", e)
+            
+    # Simulated log fallback
+    save_notification({
+        "type": "sms",
+        "recipient": to_num or "Owner (Unconfigured)",
+        "body": body_text,
+        "status": "simulated",
+        "details": f"Simulated SMS alert logged to owner: '{body_text}'"
+    })
+    print("[Notifications] Simulated SMS logged.")

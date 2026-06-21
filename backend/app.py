@@ -12,7 +12,7 @@ if os.path.exists(env_path):
 else:
     load_dotenv(dotenv_path=os.path.join(root_dir, '.env'))
 
-from db import read_db, save_lead, get_leads, delete_lead, get_settings, save_settings
+from db import read_db, save_lead, get_leads, delete_lead, get_settings, save_settings, get_notifications, save_notification
 from gemini import get_ai_response
 from calendar_service import get_available_slots, book_appointment
 
@@ -44,12 +44,13 @@ def chat():
                 "name": None,
                 "email": None,
                 "status": "in-progress",
-                "need": None,
-                "budget": None,
-                "timeline": None,
                 "transcript": [],
                 "bookedMeeting": None
             }
+            # Add dynamic placeholders for active qualifications
+            settings_data = get_settings()
+            for q in settings_data.get("qualifications", []):
+                lead[q.get("id")] = None
             
         # Append user message
         now_str = datetime.datetime.utcnow().isoformat() + 'Z'
@@ -62,13 +63,16 @@ def chat():
         # Get response (Gemini or simulated)
         ai_result = get_ai_response(lead["transcript"], lead)
         
-        # Update qualifications
-        ext = ai_result.get("extractedInfo", {})
-        if ext.get("need"): lead["need"] = ext["need"]
-        if ext.get("budget"): lead["budget"] = ext["budget"]
-        if ext.get("timeline"): lead["timeline"] = ext["timeline"]
-        if ext.get("name"): lead["name"] = ext["name"]
-        if ext.get("email"): lead["email"] = ext["email"]
+        # Update qualifications dynamically
+        ext = ai_result.get("extractedInfo", {}) or {}
+        settings_data = get_settings()
+        for q in settings_data.get("qualifications", []):
+            qid = q.get("id")
+            if ext.get(qid) is not None:
+                lead[qid] = ext[qid]
+                
+        if ext.get("name") is not None: lead["name"] = ext["name"]
+        if ext.get("email") is not None: lead["email"] = ext["email"]
         
         if ai_result.get("isQualified"):
             lead["status"] = "qualified"
@@ -86,16 +90,7 @@ def chat():
         return jsonify({
             "reply": ai_result.get("reply", ""),
             "showCalendar": ai_result.get("showCalendar", False),
-            "lead": {
-                "id": lead.get("id"),
-                "name": lead.get("name"),
-                "email": lead.get("email"),
-                "status": lead.get("status"),
-                "need": lead.get("need"),
-                "budget": lead.get("budget"),
-                "timeline": lead.get("timeline"),
-                "bookedMeeting": lead.get("bookedMeeting")
-            }
+            "lead": lead
         })
         
     except Exception as e:
@@ -163,6 +158,12 @@ def fetch_settings():
         sanitized = {
             "systemPrompt": settings.get("systemPrompt", ""),
             "faqs": settings.get("faqs", []),
+            "qualifications": settings.get("qualifications", []),
+            "resendApiKey": "••••••••••••" if settings.get("resendApiKey") else "",
+            "twilioSid": "••••••••••••" if settings.get("twilioSid") else "",
+            "twilioToken": "••••••••••••" if settings.get("twilioToken") else "",
+            "twilioFromNumber": settings.get("twilioFromNumber", ""),
+            "ownerPhoneNumber": settings.get("ownerPhoneNumber", ""),
             "googleCalendar": {
                 "clientId": gcal.get("clientId", ""),
                 "clientSecret": "••••••••••••" if gcal.get("clientSecret") else "",
@@ -182,6 +183,14 @@ def save_config_settings():
         new_settings = request.json or {}
         current_settings = get_settings()
         
+        # Preserve keys if masked
+        if new_settings.get("resendApiKey") == "••••••••••••":
+            new_settings["resendApiKey"] = current_settings.get("resendApiKey", "")
+        if new_settings.get("twilioSid") == "••••••••••••":
+            new_settings["twilioSid"] = current_settings.get("twilioSid", "")
+        if new_settings.get("twilioToken") == "••••••••••••":
+            new_settings["twilioToken"] = current_settings.get("twilioToken", "")
+            
         updated_cal = new_settings.get("googleCalendar", {})
         current_cal = current_settings.get("googleCalendar", {})
         
@@ -198,6 +207,30 @@ def save_config_settings():
     except Exception as e:
         print('[Settings API POST] Error:', e)
         return jsonify({"error": "Failed to save settings"}), 500
+
+@app.route('/api/notifications', methods=['GET'])
+def get_sent_notifications():
+    try:
+        notifs = get_notifications()
+        try:
+            notifs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        except Exception:
+            pass
+        return jsonify({"notifications": notifs})
+    except Exception as e:
+        print('[Notifications API GET] Error:', e)
+        return jsonify({"error": "Failed to fetch notifications"}), 500
+
+@app.route('/api/notifications', methods=['DELETE'])
+def clear_all_notifications():
+    try:
+        db = read_db()
+        db["notifications"] = []
+        write_db(db)
+        return jsonify({"success": True})
+    except Exception as e:
+        print('[Notifications API DELETE] Error:', e)
+        return jsonify({"error": "Failed to clear notifications"}), 500
 
 if __name__ == '__main__':
     # Listen to all addresses on port 5000

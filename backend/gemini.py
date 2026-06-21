@@ -10,24 +10,34 @@ def compile_system_instruction(settings):
     for faq in settings.get("faqs", []):
         faqs_text += f"Q: {faq.get('question')}\nA: {faq.get('answer')}\n\n"
         
+    active_quals = [q for q in settings.get("qualifications", []) if q.get("enabled", True)]
+    
+    qual_instructions = ""
+    schema_fields = {}
+    for q in active_quals:
+        qual_instructions += f"   - {q.get('label')} ({q.get('description')})\n"
+        schema_fields[q.get("id")] = f"Extracted {q.get('label')} if mentioned (or null)"
+        
+    schema_fields["name"] = "User's full name if provided (or null)"
+    schema_fields["email"] = "User's email address if provided (or null)"
+    
+    schema_json = {
+        "reply": "Your next conversational message to the user.",
+        "extractedInfo": schema_fields,
+        "isQualified": "boolean (Set to true if ALL required qualification fields above have been successfully extracted and meet the criteria)",
+        "showCalendar": "boolean (Set to true if isQualified is true AND you have captured their name and email, and are offering them to book a slot)"
+    }
+    
     return f"""{settings.get('systemPrompt')}
 
 Here is our knowledge base to answer user questions:
 {faqs_text}
 
-IMPORTANT: You must return a JSON response matching this schema:
-{{
-  "reply": "Your next conversational message to the user.",
-  "extractedInfo": {{
-    "need": "Summarized need if they mentioned what they want to build (or null)",
-    "budget": "Extracted budget/price range if they mentioned it (or null)",
-    "timeline": "Extracted launch timeline if they mentioned it (or null)",
-    "name": "User's full name if they provided it (or null)",
-    "email": "User's email address if they provided it (or null)"
-  }},
-  "isQualified": false, // Set to true if Need, Budget, and Timeline have all been discussed and meet requirements (budget >= $3000, timeline within 3 months)
-  "showCalendar": false // Set to true if isQualified is true AND you have successfully captured their name and email and are prompting them to book a time.
-}}
+You must qualify the lead based on the following specific criteria:
+{qual_instructions}
+
+IMPORTANT: You must return a JSON response matching this EXACT schema format:
+{json.dumps(schema_json, indent=2)}
 
 Ensure all JSON properties are closed, and do not include markdown backticks around the JSON - return ONLY the raw JSON string."""
 
@@ -41,13 +51,14 @@ def get_simulated_response(transcript, settings, lead):
                 last_user_msg = msg.get("content", "").lower()
                 break
                 
-    extracted_info = {
-        "need": lead.get("need"),
-        "budget": lead.get("budget"),
-        "timeline": lead.get("timeline"),
-        "name": lead.get("name"),
-        "email": lead.get("email")
-    }
+    active_quals = [q for q in settings.get("qualifications", []) if q.get("enabled", True)]
+    
+    # Initialize extracted info with current lead values
+    extracted_info = {}
+    for q in active_quals:
+        extracted_info[q["id"]] = lead.get(q["id"]) or None
+    extracted_info["name"] = lead.get("name")
+    extracted_info["email"] = lead.get("email")
     
     # 1. Check FAQs first
     for faq in settings.get("faqs", []):
@@ -55,33 +66,34 @@ def get_simulated_response(transcript, settings, lead):
         match_count = sum(1 for w in q_words if w in last_user_msg)
         if match_count >= 2 or faq.get("question", "").lower() in last_user_msg:
             return {
-                "reply": f"{faq.get('answer')} By the way, to see if we can help with your project, what specific requirements or goals do you have in mind?",
+                "reply": f"{faq.get('answer')} By the way, regarding your project, do you have any specific requirements or goals?",
                 "extractedInfo": extracted_info,
                 "isQualified": False,
                 "showCalendar": False
             }
             
-    # 2. State transition simulation
-    reply = ""
-    show_calendar = False
-    is_qualified = False
-    
+    # 2. Heuristic state transition
+    # Find which qualification is currently being filled
+    current_field = None
+    for q in active_quals:
+        if not extracted_info[q["id"]]:
+            current_field = q["id"]
+            break
+            
     if last_user_msg:
-        if not extracted_info["need"]:
-            extracted_info["need"] = messages[-1].get("content") if messages else ""
-        elif not extracted_info["budget"]:
-            budget_match = re.search(r'\$?(\d+[\d,kK]*)', last_user_msg)
-            if budget_match:
-                extracted_info["budget"] = budget_match.group(0)
+        if current_field:
+            if current_field == "budget":
+                budget_match = re.search(r'\$?(\d+[\d,kK]*)', last_user_msg)
+                if budget_match:
+                    extracted_info["budget"] = budget_match.group(0)
+                else:
+                    extracted_info["budget"] = messages[-1].get("content") if messages else ""
             else:
-                extracted_info["budget"] = messages[-1].get("content") if messages else ""
-        elif not extracted_info["timeline"]:
-            extracted_info["timeline"] = messages[-1].get("content") if messages else ""
+                extracted_info[current_field] = messages[-1].get("content") if messages else ""
         elif not extracted_info["name"] or not extracted_info["email"]:
             email_match = re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', last_user_msg)
             if email_match:
                 extracted_info["email"] = email_match.group(0)
-                # Guess name
                 name_part = last_user_msg.replace(email_match.group(0), '')
                 name_part = re.sub(r'my name is|i am|this is', '', name_part).strip()
                 if len(name_part) > 2:
@@ -91,22 +103,35 @@ def get_simulated_response(transcript, settings, lead):
                 extracted_info["name"] = messages[-1].get("content") if messages else ""
             if not extracted_info["email"] and '@' in last_user_msg:
                 extracted_info["email"] = email_match.group(0) if email_match else last_user_msg
-                
-    if extracted_info["need"] and extracted_info["budget"] and extracted_info["timeline"]:
-        is_qualified = True
-        
-    if not extracted_info["need"]:
-        reply = "Hi! I am the assistant for Apex Digital Solutions. I'd love to help you book a meeting with our team. To get started, what kind of project are you looking to build?"
-    elif not extracted_info["budget"]:
-        reply = "That sounds like an interesting project! To make sure we're a good fit, what is your estimated budget or price range for this project?"
-    elif not extracted_info["timeline"]:
-        reply = "Got it. And what is your target timeline or launch date for this project?"
+
+    # Re-evaluate which field is next
+    next_field_to_fill = None
+    for q in active_quals:
+        if not extracted_info[q["id"]]:
+            next_field_to_fill = q
+            break
+            
+    is_qualified = (next_field_to_fill is None)
+    
+    # Formulate response
+    reply = ""
+    show_calendar = False
+    
+    if next_field_to_fill:
+        if next_field_to_fill["id"] == "need":
+            reply = "Hi! I am the assistant for Apex Digital Solutions. To get started, what kind of project are you looking to build?"
+        elif next_field_to_fill["id"] == "budget":
+            reply = "Got it. What is your estimated budget or price range for this project?"
+        elif next_field_to_fill["id"] == "timeline":
+            reply = "And what is your target timeline or launch date for the project?"
+        else:
+            reply = f"Thanks. Could you please share details about: {next_field_to_fill['label']}?"
     elif not extracted_info["name"]:
-        reply = "Excellent, those details look great. We are definitely able to help with this! To get a discovery call scheduled, what is your name?"
+        reply = "Great! Those details look perfect. We can definitely help you with this project. To schedule a call, what is your full name?"
     elif not extracted_info["email"]:
-        reply = f"Thanks, {extracted_info['name']}! What is your email address so we can send you the calendar invite?"
+        reply = f"Thanks, {extracted_info['name']}! What is your email address so we can send the meeting link?"
     else:
-        reply = f"Thank you, {extracted_info['name']}. Everything is qualified! Please pick a time from our calendar below to book your discovery call."
+        reply = f"Thank you, {extracted_info['name']}. Your details have been qualified! Please select a call time from our scheduler below."
         show_calendar = True
         
     return {

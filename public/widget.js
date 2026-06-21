@@ -18,8 +18,8 @@
       width: 60px;
       height: 60px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #6366f1 0%, #06b6d4 100%);
-      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+      background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+      box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -30,7 +30,7 @@
     }
     #apex-chat-trigger:hover {
       transform: scale(1.1) rotate(5deg);
-      box-shadow: 0 6px 24px rgba(99, 102, 241, 0.6);
+      box-shadow: 0 6px 24px rgba(245, 158, 11, 0.6);
     }
     #apex-chat-trigger:active {
       transform: scale(0.95);

@@ -217,18 +217,20 @@ function LeadsCRMContent() {
                     Qualification Data
                   </h4>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '10px' }}>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Need</div>
-                      <div style={{ fontSize: '13px', fontWeight: 500, marginTop: '2px' }}>{selectedLead.need || 'Collecting...'}</div>
-                    </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Budget</div>
-                      <div style={{ fontSize: '13px', fontWeight: 500, marginTop: '2px' }}>{selectedLead.budget || 'Collecting...'}</div>
-                    </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Timeline</div>
-                      <div style={{ fontSize: '13px', fontWeight: 500, marginTop: '2px' }}>{selectedLead.timeline || 'Collecting...'}</div>
-                    </div>
+                    {Object.keys(selectedLead)
+                      .filter(key => !['id', 'name', 'email', 'status', 'transcript', 'bookedMeeting', 'createdAt', 'updatedAt'].includes(key))
+                      .map((field) => {
+                        const label = field === 'need' ? 'Project Need' :
+                                      field === 'budget' ? 'Estimated Budget' :
+                                      field === 'timeline' ? 'Target Timeline' :
+                                      field.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase()).trim();
+                        return (
+                          <div key={field} style={{ background: 'rgba(255,255,255,0.02)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{label}</div>
+                            <div style={{ fontSize: '13px', fontWeight: 500, marginTop: '2px' }}>{selectedLead[field] || 'Collecting...'}</div>
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
 
