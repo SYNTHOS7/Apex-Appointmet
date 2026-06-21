@@ -1,13 +1,6 @@
 import os
 import json
 import socket
-
-# Force IPv4 resolution to prevent connection failures on IPv4-only hosts
-orig_getaddrinfo = socket.getaddrinfo
-def patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-socket.getaddrinfo = patched_getaddrinfo
-
 import psycopg2
 from dotenv import load_dotenv
 
@@ -25,8 +18,9 @@ if DATABASE_URL:
         from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
         parsed = urlparse(DATABASE_URL)
         hostname = parsed.hostname
+        port = parsed.port or 5432
         if hostname:
-            addr_info = socket.getaddrinfo(hostname, None, socket.AF_INET)
+            addr_info = socket.getaddrinfo(hostname, port, socket.AF_INET)
             if addr_info:
                 ip = addr_info[0][4][0]
                 query_params = dict(parse_qsl(parsed.query))

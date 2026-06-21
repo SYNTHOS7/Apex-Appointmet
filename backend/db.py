@@ -2,14 +2,6 @@ import os
 import json
 import tempfile
 import socket
-
-# Force IPv4 resolution to prevent connection failures on IPv4-only hosts (like Render)
-# trying to connect to dual-stack IPv6 endpoints (like Supabase)
-orig_getaddrinfo = socket.getaddrinfo
-def patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-socket.getaddrinfo = patched_getaddrinfo
-
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
 from contextlib import contextmanager
@@ -23,12 +15,12 @@ USE_POSTGRES = bool(DATABASE_URL)
 if USE_POSTGRES:
     try:
         from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
-        import socket
         parsed = urlparse(DATABASE_URL)
         hostname = parsed.hostname
+        port = parsed.port or 5432
         if hostname:
-            # Force IPv4 lookup for the host name in Python
-            addr_info = socket.getaddrinfo(hostname, None, socket.AF_INET)
+            # Force IPv4 lookup for the host name in Python using standard DNS resolution
+            addr_info = socket.getaddrinfo(hostname, port, socket.AF_INET)
             if addr_info:
                 ip = addr_info[0][4][0]
                 print(f"[Database] Patched connection string: resolved {hostname} to IPv4 {ip}")
