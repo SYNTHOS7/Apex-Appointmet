@@ -229,11 +229,11 @@ export default function WidgetPage() {
           fontSize: '16px',
           boxShadow: '0 4px 10px rgba(99, 102, 241, 0.3)'
         }}>
-          🤖
+          A
         </div>
         <div style={{ flex: 1 }}>
           <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            Apex AI Assistant
+            Apex Assistant
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--status-qualified)', display: 'inline-block' }} />
           </h3>
           <p style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Typically replies instantly</p>

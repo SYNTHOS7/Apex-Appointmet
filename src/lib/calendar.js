@@ -198,7 +198,7 @@ export async function bookAppointment(leadId, dateTimeIso) {
         },
         body: JSON.stringify({
           summary: `Discovery Call: ${lead.name} <> Apex Digital`,
-          description: `Conversational AI Qualified Lead.\n\nLead Details:\n- Name: ${lead.name}\n- Email: ${lead.email}\n- Need: ${lead.need || 'N/A'}\n- Budget: ${lead.budget || 'N/A'}\n- Timeline: ${lead.timeline || 'N/A'}\n\n🤖 Managed by AI Appointment Setter`,
+          description: `Apex Digital Discovery Call.\n\nLead Details:\n- Name: ${lead.name}\n- Email: ${lead.email}\n- Need: ${lead.need || 'N/A'}\n- Budget: ${lead.budget || 'N/A'}\n- Timeline: ${lead.timeline || 'N/A'}\n\nScheduled via Apex Booking Manager.`,
           start: {
             dateTime: dateTimeIso,
           },

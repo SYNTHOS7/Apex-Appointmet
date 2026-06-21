@@ -96,7 +96,7 @@ function LeadsCRMContent() {
         <div className="content-header animate-fade-in">
           <div>
             <h2>Leads CRM</h2>
-            <p>Track, qualify, and manage leads captured by the AI agent.</p>
+            <p>Track, qualify, and manage leads captured by the assistant.</p>
           </div>
         </div>
 
