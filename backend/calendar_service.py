@@ -1,6 +1,7 @@
 import datetime
 import requests
-from db import get_settings, read_db, save_lead, save_notification
+import os
+from db import get_settings, save_lead, save_notification, get_leads, get_lead
 
 def get_google_access_token(client_id, client_secret, refresh_token):
     try:
@@ -74,8 +75,8 @@ def generate_base_slots_for_date(date_obj):
         
     return slots
 
-def get_available_slots():
-    settings = get_settings()
+def get_available_slots(client_id='default'):
+    settings = get_settings(client_id)
     gcal = settings.get("googleCalendar", {})
     
     # Calculate next 7 days starting from tomorrow
@@ -97,9 +98,9 @@ def get_available_slots():
         current_date += datetime.timedelta(days=1)
         
     # 2. Get local database bookings
-    db = read_db()
+    leads = get_leads(client_id)
     local_booked_times = []
-    for l in db.get("leads", []):
+    for l in leads:
         bm = l.get("bookedMeeting")
         if bm and bm.get("status") == "booked" and bm.get("dateTime"):
             try:
@@ -150,14 +151,8 @@ def get_available_slots():
             available.append(slot.isoformat() + 'Z')
     return available
 
-def book_appointment(lead_id, date_time_iso):
-    db = read_db()
-    leads = db.get("leads", [])
-    lead = None
-    for l in leads:
-        if l.get("id") == lead_id:
-            lead = l
-            break
+def book_appointment(lead_id, date_time_iso, client_id='default'):
+    lead = get_lead(lead_id, client_id)
             
     if not lead:
         raise Exception(f"Lead with id {lead_id} not found")
@@ -174,19 +169,18 @@ def book_appointment(lead_id, date_time_iso):
     
     lead["bookedMeeting"] = booked_meeting
     lead["status"] = "qualified"
-    save_lead(lead)
+    save_lead(lead, client_id)
     
-    settings = get_settings()
     gcal = settings.get("googleCalendar", {})
-    client_id = gcal.get("clientId")
-    client_secret = gcal.get("clientSecret")
-    refresh_token = gcal.get("refreshToken")
+    gcal_client_id = gcal.get("clientId")
+    gcal_client_secret = gcal.get("clientSecret")
+    gcal_refresh_token = gcal.get("refreshToken")
     
     # Book on Google Calendar if enabled
-    if gcal.get("isEnabled") and not gcal.get("isMockMode") and client_id and client_secret and refresh_token:
+    if gcal.get("isEnabled") and not gcal.get("isMockMode") and gcal_client_id and gcal_client_secret and gcal_refresh_token:
         try:
             print(f"[Calendar Service] Booking event on Google Calendar for lead {lead.get('name')}...")
-            access_token = get_google_access_token(client_id, client_secret, refresh_token)
+            access_token = get_google_access_token(gcal_client_id, gcal_client_secret, gcal_refresh_token)
             
             payload = {
                 "summary": f"Discovery Call: {lead.get('name')} <> Apex Digital",
@@ -227,7 +221,7 @@ def book_appointment(lead_id, date_time_iso):
             print('[Calendar Service] Successfully booked Google Calendar event ID:', event_id)
             
             lead["bookedMeeting"]["googleEventId"] = event_id
-            save_lead(lead)
+            save_lead(lead, client_id)
         except Exception as e:
             print('[Calendar Service] Failed to create Google Calendar event, but local booking is saved:', e)
             
@@ -241,8 +235,14 @@ def book_appointment(lead_id, date_time_iso):
             
     return lead
 
+def get_config_val(settings, key, env_var):
+    val = settings.get(key)
+    if not val or val == "••••••••••••":
+        return os.environ.get(env_var)
+    return val
+
 def send_email_confirmation(lead, meeting_date_str, settings):
-    resend_key = settings.get("resendApiKey")
+    resend_key = get_config_val(settings, "resendApiKey", "RESEND_API_KEY")
     lead_email = lead.get("email")
     lead_name = lead.get("name", "there")
     
@@ -263,7 +263,7 @@ def send_email_confirmation(lead, meeting_date_str, settings):
     </div>
     """
     
-    if resend_key and resend_key != "••••••••••••":
+    if resend_key:
         try:
             response = requests.post(
                 "https://api.resend.com/emails",
@@ -312,15 +312,15 @@ def send_email_confirmation(lead, meeting_date_str, settings):
     print("[Notifications] Simulated email logged to:", lead_email)
 
 def send_sms_alert(lead, meeting_date_str, settings):
-    sid = settings.get("twilioSid")
-    token = settings.get("twilioToken")
-    from_num = settings.get("twilioFromNumber")
-    to_num = settings.get("ownerPhoneNumber")
+    sid = get_config_val(settings, "twilioSid", "TWILIO_ACCOUNT_SID")
+    token = get_config_val(settings, "twilioToken", "TWILIO_AUTH_TOKEN")
+    from_num = get_config_val(settings, "twilioFromNumber", "TWILIO_FROM_NUMBER")
+    to_num = get_config_val(settings, "ownerPhoneNumber", "OWNER_PHONE_NUMBER")
     lead_name = lead.get("name", "Anonymous")
     
     body_text = f"Apex Alert: New Lead Qualified! {lead_name} ({lead.get('email')}) has booked a discovery call for {meeting_date_str}."
     
-    if sid and token and from_num and to_num and sid != "••••••••••••" and token != "••••••••••••":
+    if sid and token and from_num and to_num:
         try:
             url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
             response = requests.post(

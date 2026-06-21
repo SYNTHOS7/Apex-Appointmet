@@ -12,7 +12,7 @@ if os.path.exists(env_path):
 else:
     load_dotenv(dotenv_path=os.path.join(root_dir, '.env'))
 
-from db import read_db, write_db, save_lead, get_leads, delete_lead, get_settings, save_settings, get_notifications, save_notification
+from db import save_lead, get_leads, delete_lead, get_settings, save_settings, get_notifications, save_notification, get_lead, clear_notifications
 
 from gemini import get_ai_response
 from calendar_service import get_available_slots, book_appointment
@@ -74,13 +74,7 @@ def chat():
         if not chat_id or not message:
             return jsonify({"error": "chatId and message are required"}), 400
             
-        db = read_db()
-        leads = db.get("leads", [])
-        lead = None
-        for l in leads:
-            if l.get("id") == chat_id and l.get("clientId") == client_id:
-                lead = l
-                break
+        lead = get_lead(chat_id, client_id)
                 
         # Initialize lead if it doesn't exist
         if not lead:
@@ -231,11 +225,11 @@ def fetch_settings():
             "systemPrompt": settings.get("systemPrompt", ""),
             "faqs": settings.get("faqs", []),
             "qualifications": settings.get("qualifications", []),
-            "resendApiKey": "••••••••••••" if settings.get("resendApiKey") else "",
-            "twilioSid": "••••••••••••" if settings.get("twilioSid") else "",
-            "twilioToken": "••••••••••••" if settings.get("twilioToken") else "",
-            "twilioFromNumber": settings.get("twilioFromNumber", ""),
-            "ownerPhoneNumber": settings.get("ownerPhoneNumber", ""),
+            "resendApiKey": "••••••••••••" if (settings.get("resendApiKey") or os.environ.get("RESEND_API_KEY")) else "",
+            "twilioSid": "••••••••••••" if (settings.get("twilioSid") or os.environ.get("TWILIO_ACCOUNT_SID")) else "",
+            "twilioToken": "••••••••••••" if (settings.get("twilioToken") or os.environ.get("TWILIO_AUTH_TOKEN")) else "",
+            "twilioFromNumber": settings.get("twilioFromNumber") or os.environ.get("TWILIO_FROM_NUMBER") or "",
+            "ownerPhoneNumber": settings.get("ownerPhoneNumber") or os.environ.get("OWNER_PHONE_NUMBER") or "",
             "googleCalendar": {
                 "clientId": gcal.get("clientId", ""),
                 "clientSecret": "••••••••••••" if gcal.get("clientSecret") else "",
@@ -276,7 +270,21 @@ def save_config_settings():
         new_settings["googleCalendar"] = updated_cal
         
         saved = save_settings(new_settings, client_id)
-        return jsonify({"success": True, "settings": saved})
+        gcal = saved.get("googleCalendar", {})
+        sanitized = {
+            **saved,
+            "resendApiKey": "••••••••••••" if (saved.get("resendApiKey") or os.environ.get("RESEND_API_KEY")) else "",
+            "twilioSid": "••••••••••••" if (saved.get("twilioSid") or os.environ.get("TWILIO_ACCOUNT_SID")) else "",
+            "twilioToken": "••••••••••••" if (saved.get("twilioToken") or os.environ.get("TWILIO_AUTH_TOKEN")) else "",
+            "twilioFromNumber": saved.get("twilioFromNumber") or os.environ.get("TWILIO_FROM_NUMBER") or "",
+            "ownerPhoneNumber": saved.get("ownerPhoneNumber") or os.environ.get("OWNER_PHONE_NUMBER") or "",
+            "googleCalendar": {
+                **gcal,
+                "clientSecret": "••••••••••••" if gcal.get("clientSecret") else "",
+                "refreshToken": "••••••••••••" if gcal.get("refreshToken") else ""
+            }
+        }
+        return jsonify({"success": True, "settings": sanitized})
     except Exception as e:
         print('[Settings API POST] Error:', e)
         return jsonify({"error": "Failed to save settings"}), 500
@@ -299,10 +307,7 @@ def get_sent_notifications():
 def clear_all_notifications():
     try:
         client_id = get_client_id()
-        db = read_db()
-        all_notifs = db.get("notifications", [])
-        db["notifications"] = [n for n in all_notifs if n.get("clientId") != client_id]
-        write_db(db)
+        clear_notifications(client_id)
         return jsonify({"success": True})
     except Exception as e:
         print('[Notifications API DELETE] Error:', e)
