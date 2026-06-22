@@ -453,7 +453,30 @@ def save_settings(settings, client_id='default'):
     if not USE_POSTGRES:
         return save_settings_json(settings, client_id)
         
-    current = get_settings(client_id)
+    # Query directly to avoid infinite recursion when default settings are initialized
+    query_select = """
+        SELECT system_prompt, faqs, qualifications, resend_api_key, 
+               twilio_sid, twilio_token, twilio_from_number, owner_phone_number, google_calendar
+        FROM settings
+        WHERE client_id = %s
+    """
+    rows = execute_query(query_select, (client_id,), fetch=True)
+    if rows:
+        row = rows[0]
+        current = {
+            "systemPrompt": row[0],
+            "faqs": parse_json_field(row[1]) or [],
+            "qualifications": parse_json_field(row[2]) or [],
+            "resendApiKey": row[3],
+            "twilioSid": row[4],
+            "twilioToken": row[5],
+            "twilioFromNumber": row[6],
+            "ownerPhoneNumber": row[7],
+            "googleCalendar": parse_json_field(row[8]) or {}
+        }
+    else:
+        current = DEFAULT_STATE["settings"]
+        
     merged = {**current, **settings}
     
     query = """
